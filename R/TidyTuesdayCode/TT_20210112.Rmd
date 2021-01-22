@@ -1,0 +1,133 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## Description
+RMarkdown Notebook for TidyTuesday-Jan12-2021. The data for this week's exercise represeted collection information from the Tate Museum of Art. The two data files (artwork.csv and artist.csv) respectively held information about the art pieces them selves and the artists who made them. My goal for this exercise was to focus on using the `cowplot` package to create a composite figure.
+
+## Code
+### Libraries
+```{r}
+library(tidyverse)
+library(tidytuesdayR)
+library(cowplot)
+library(ggridges)
+library(mmbtools)
+
+mmb_load_fonts(import_fonts=TRUE)
+```
+
+### Loading Data
+```{r}
+tuesdata <- tidytuesdayR::tt_load('2021-01-12')
+artwork <- tuesdata$artwork
+artist <- tuesdata$artist
+```
+### Creating the Visualization
+#### Data Filtering
+```{r, warning=FALSE, message=FALSE}
+art <- artwork %>%
+  filter(artistRole == "artist") %>%
+  filter(!is.na(year) & year >= 1700) %>%
+  mutate(
+    year = as.numeric(year)
+  )
+
+top_medium <- art %>%
+  filter(!is.na(medium)) %>%
+  group_by(medium) %>%
+  summarize(count=n()) %>%
+  arrange(desc(count)) %>%
+  top_n(count, n=31) %>%
+  filter(count != max(count))
+
+med_art <- art %>%
+  inner_join(
+    top_medium,
+    by=c("medium")
+  ) %>%
+  mutate(medium = fct_rev(fct_infreq(medium)))
+```
+
+#### Figure Definitions
+```{r}
+# An empty figure
+null <- ggplot + theme_void()
+
+# A blank figure that matches our theme
+blank <- ggplot() + theme_void() + theme_mmb_basic(panel.border = element_blank())
+
+# Primary plot
+p1 <- med_art %>%
+  ggplot(aes(x=year)) +
+  geom_density_ridges(aes(y=medium, fill=medium), alpha=0.7, color=NA) +
+  scale_fill_mncol(palette="heat") +
+  geom_text(data=top_medium, aes(y=medium, label=medium),x=1690, hjust=0, vjust=-0.2, size=4) +
+  xlab("Year") +
+  ylab("Art Frequency by Medium") +
+  theme_mmb_basic(panel.border = element_blank()) +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_line( size=.1, color=mncolors[["medium_gray"]] )
+  ) +
+  coord_cartesian(xlim=c(min(art$year),max(art$year)))
+
+# Plot for the right-hand margin
+ymarg <- med_art %>%
+  ggplot(aes(x=medium)) +
+  geom_bar(aes(x=medium, y=..count.., fill=medium), width=0.25) +
+  # geom_bar(aes(x=medium, y=..count..), fill=mncolors[["minnesota_green"]], width=0.25) +
+  scale_fill_mncol(palette="heat") +
+  ylab("Total Art Count by Medium") +
+  theme_mmb_basic() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "none",
+    panel.border = element_blank()
+  ) +
+  coord_flip(xlim=c(1,29.9))
+
+# Plot for the top margin
+xmarg <- art  %>%
+  filter(!is.na(year)) %>%
+  ggplot(aes(x=year)) +
+  geom_bar(aes(y=..count..), fill="#003865", width=0.75) +
+  # geom_density(fill="#003865",alpha=0.5) +
+  annotate(geom="text", x  = 1725, y = 1000, label = "Tate Art Count by Year Created" ,hjust=0, size=5, fontface="bold") +
+  ylab("") +
+  theme_mmb_basic() +
+  theme(
+    axis.text=element_blank(),
+    axis.ticks = element_blank(),
+    axis.title.x = element_blank(),
+    panel.border = element_blank()
+  ) +
+  coord_cartesian(xlim=c(min(med_art$year),max(med_art$year)))
+```
+
+#### Building Composite Figure
+```{r}
+p2 <- plot_grid(null,blank,p1,ymarg,rel_widths = c(0.8,0.2),rel_heights = c(0.2,0.9),align="h")
+
+p3 <- plot_grid(xmarg,blank,p1,null,rel_widths = c(0.8,0.2),rel_heights = c(0.2,0.9),align="v")
+
+title <- ggdraw() + 
+  draw_label("Frequency of Art Mediums Held at Tate Museum of Art",
+             fontface = "bold", x=0, hjust=0, size=24) +
+  theme_mmb_basic(panel.border = element_blank())
+
+final <- ggdraw(p2) + draw_plot(p3)
+
+plot_grid(
+  title,
+  final,
+  ncol=1,
+  rel_heights = c(0.1,0.9)
+)
+```
+
